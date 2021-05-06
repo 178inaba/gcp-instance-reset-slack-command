@@ -29,7 +29,7 @@ func init() {
 }
 
 func ResetInstance(w http.ResponseWriter, r *http.Request) {
-	if _, err := instancesService.Reset(projectID, zone, os.Getenv("TARGET_INSTANCE_NAME")).Context(r.Context()).Do(); err != nil {
+	if _, err := instancesService.Reset(projectID, os.Getenv("TARGET_ZONE"), os.Getenv("TARGET_INSTANCE_NAME")).Context(r.Context()).Do(); err != nil {
 		log.Fatal(err)
 	}
 }
