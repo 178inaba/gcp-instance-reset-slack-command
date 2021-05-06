@@ -21,11 +21,6 @@ func init() {
 		log.Fatal(err)
 	}
 
-	zone, err = metadata.Zone()
-	if err != nil {
-		log.Fatal(err)
-	}
-
 	s, err := compute.NewService(context.Background())
 	if err != nil {
 		log.Fatal(err)
