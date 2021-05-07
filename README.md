@@ -2,8 +2,17 @@
 
 ## Usage
 
+### Create `.env.yaml`
+
 ```console
-$ gcloud functions deploy ResetInstance --allow-unauthenticated --runtime go113 --env-vars-file .env.yaml --trigger-http --project <project-id>
+$ cp .env.example.yaml .env.yaml
+$ vim .env.yaml
+```
+
+### Deploy
+
+```console
+$ gcloud functions deploy <name> --entry-point ResetInstance --allow-unauthenticated --runtime go113 --security-level secure-always --env-vars-file .env.yaml --trigger-http --project <project-id>
 ```
 
 ## License
