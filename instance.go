@@ -19,14 +19,27 @@ import (
 )
 
 var (
-	projectID           string
-	zone                string
-	instancesService    *compute.InstancesService
+	projectID string
+	zone      string
+	instance  string
+
+	slackSigningSecretSecretID string
+
+	notifyTextTemplate         string
+	notifyChannelWebhookRawurl string
+
 	secretManagerClient *secretmanager.Client
+	instancesService    *compute.InstancesService
 )
 
 func init() {
 	var err error
+
+	zone = os.Getenv("TARGET_ZONE")
+	instance = os.Getenv("TARGET_INSTANCE_NAME")
+	slackSigningSecretSecretID = os.Getenv("SLACK_SIGNING_SECRET_SECRET_ID")
+	notifyTextTemplate = os.Getenv("NOTIFY_TEXT_TEMPLATE")
+	notifyChannelWebhookRawurl = os.Getenv("NOTIFY_CHANNEL_WEBHOOK_URL")
 
 	projectID, err = metadata.ProjectID()
 	if err != nil {
@@ -50,6 +63,9 @@ func init() {
 type payload struct {
 	ChannelName string
 	UserName    string
+	ProjectID   string
+	Zone        string
+	Instance    string
 }
 
 func ResetInstance(w http.ResponseWriter, r *http.Request) {
@@ -72,7 +88,7 @@ func ResetInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := instancesService.Reset(projectID, os.Getenv("TARGET_ZONE"), os.Getenv("TARGET_INSTANCE_NAME")).Context(ctx).Do(); err != nil {
+	if _, err := instancesService.Reset(projectID, zone, instance).Context(ctx).Do(); err != nil {
 		errorHandler(w, err)
 		return
 	}
@@ -97,6 +113,9 @@ func newPayload(body []byte) (*payload, error) {
 	return &payload{
 		ChannelName: vs.Get("channel_name"),
 		UserName:    vs.Get("user_name"),
+		ProjectID:   projectID,
+		Zone:        zone,
+		Instance:    instance,
 	}, nil
 }
 
@@ -106,7 +125,7 @@ func verifyRequest(ctx context.Context, header http.Header, body []byte) error {
 			Name: fmt.Sprintf(
 				"projects/%s/secrets/%s/versions/latest",
 				projectID,
-				os.Getenv("SLACK_SIGNING_SECRET_SECRET_ID"),
+				slackSigningSecretSecretID,
 			),
 		},
 	)
@@ -131,20 +150,18 @@ func verifyRequest(ctx context.Context, header http.Header, body []byte) error {
 }
 
 func notifyWebhook(ctx context.Context, payload *payload) error {
-	webhookRawurl := os.Getenv("NOTIFY_CHANNEL_WEBHOOK_URL")
-	textTmpl := os.Getenv("NOTIFY_TEXT_TEMPLATE")
-	if webhookRawurl == "" || textTmpl == "" {
+	if notifyTextTemplate == "" || notifyChannelWebhookRawurl == "" {
 		return nil
 	}
 
 	b := &strings.Builder{}
-	t := template.Must(template.New("").Parse(textTmpl))
+	t := template.Must(template.New("").Parse(notifyTextTemplate))
 	if err := t.Execute(b, payload); err != nil {
 		return err
 	}
 
 	msg := &slack.WebhookMessage{Text: b.String()}
-	if err := slack.PostWebhookContext(ctx, webhookRawurl, msg); err != nil {
+	if err := slack.PostWebhookContext(ctx, notifyChannelWebhookRawurl, msg); err != nil {
 		return err
 	}
 
