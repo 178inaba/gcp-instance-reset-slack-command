@@ -43,19 +43,19 @@ func init() {
 
 	projectID, err = metadata.ProjectID()
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Get project ID: %v.", err)
 	}
 
 	ctx := context.Background()
 
 	secretManagerClient, err = secretmanager.NewClient(ctx)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("New secret manager client: %v.", err)
 	}
 
 	s, err := compute.NewService(ctx)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("New compute service: %v.", err)
 	}
 	instancesService = s.Instances
 }
@@ -73,50 +73,29 @@ func ResetInstance(w http.ResponseWriter, r *http.Request) {
 
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
-		errorHandler(w, err)
+		errorHandler(w, fmt.Errorf("read body: %w", err))
 		return
 	}
 
 	if err := verifyRequest(ctx, r.Header, body); err != nil {
-		errorHandler(w, err)
-		return
-	}
-
-	p, err := newPayload(body)
-	if err != nil {
-		errorHandler(w, err)
+		errorHandler(w, fmt.Errorf("verify request: %w", err))
 		return
 	}
 
 	if _, err := instancesService.Reset(projectID, zone, instance).Context(ctx).Do(); err != nil {
-		errorHandler(w, err)
+		errorHandler(w, fmt.Errorf("reset instance: %w", err))
 		return
 	}
 
 	if _, err := w.Write([]byte("OK")); err != nil {
-		errorHandler(w, err)
+		errorHandler(w, fmt.Errorf("write body: %w", err))
 		return
 	}
 
-	if err := notifyWebhook(ctx, p); err != nil {
-		errorHandler(w, err)
+	if err := notifyWebhook(ctx, body); err != nil {
+		errorHandler(w, fmt.Errorf("notify webhook: %w", err))
 		return
 	}
-}
-
-func newPayload(body []byte) (*payload, error) {
-	vs, err := url.ParseQuery(string(body))
-	if err != nil {
-		return nil, err
-	}
-
-	return &payload{
-		ChannelName: vs.Get("channel_name"),
-		UserName:    vs.Get("user_name"),
-		ProjectID:   projectID,
-		Zone:        zone,
-		Instance:    instance,
-	}, nil
 }
 
 func verifyRequest(ctx context.Context, header http.Header, body []byte) error {
@@ -130,39 +109,52 @@ func verifyRequest(ctx context.Context, header http.Header, body []byte) error {
 		},
 	)
 	if err != nil {
-		return err
+		return fmt.Errorf("access secret version: %w", err)
 	}
 
 	sv, err := slack.NewSecretsVerifier(header, string(resp.Payload.Data))
 	if err != nil {
-		return err
+		return fmt.Errorf("new secrets verifier: %w", err)
 	}
 
 	if _, err := sv.Write(body); err != nil {
-		return err
+		return fmt.Errorf("write body: %w", err)
 	}
 
 	if err := sv.Ensure(); err != nil {
-		return err
+		return fmt.Errorf("ensure: %w", err)
 	}
 
 	return nil
 }
 
-func notifyWebhook(ctx context.Context, payload *payload) error {
+func notifyWebhook(ctx context.Context, body []byte) error {
 	if notifyTextTemplate == "" || notifyChannelWebhookRawurl == "" {
 		return nil
 	}
 
+	vs, err := url.ParseQuery(string(body))
+	if err != nil {
+		return fmt.Errorf("parse body: %w", err)
+	}
+
+	p := payload{
+		ChannelName: vs.Get("channel_name"),
+		UserName:    vs.Get("user_name"),
+		ProjectID:   projectID,
+		Zone:        zone,
+		Instance:    instance,
+	}
+
 	b := &strings.Builder{}
 	t := template.Must(template.New("").Parse(notifyTextTemplate))
-	if err := t.Execute(b, payload); err != nil {
-		return err
+	if err := t.Execute(b, p); err != nil {
+		return fmt.Errorf("execute template: %w", err)
 	}
 
 	msg := &slack.WebhookMessage{Text: b.String()}
 	if err := slack.PostWebhookContext(ctx, notifyChannelWebhookRawurl, msg); err != nil {
-		return err
+		return fmt.Errorf("post message to webhook: %w", err)
 	}
 
 	return nil
@@ -170,7 +162,7 @@ func notifyWebhook(ctx context.Context, payload *payload) error {
 
 func errorHandler(w http.ResponseWriter, err error) {
 	if _, e := w.Write([]byte(err.Error())); err != nil {
-		log.Print(e)
+		log.Printf("Write error: %v.", e)
 	}
-	log.Print(err)
+	log.Printf("Error : %v.", err)
 }
