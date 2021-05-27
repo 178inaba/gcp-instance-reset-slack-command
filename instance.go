@@ -161,7 +161,7 @@ func notifyWebhook(ctx context.Context, body []byte) error {
 }
 
 func errorHandler(w http.ResponseWriter, err error) {
-	if _, e := w.Write([]byte(err.Error())); err != nil {
+	if _, e := w.Write([]byte(err.Error())); e != nil {
 		log.Printf("Write error: %v.", e)
 	}
 	log.Printf("Error : %v.", err)
